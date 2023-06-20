@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import numpy as np
 import logging
 import mcubes
-from icecream import ic
+# from icecream import ic
 from models.physicalshader import unpack_brdf_params_burley
 
 def extract_fields(bound_min, bound_max, resolution, query_func):

@@ -9,10 +9,10 @@ import torch
 import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 from shutil import copyfile
-from icecream import ic
+# from icecream import ic
 from tqdm import tqdm
 from pyhocon import ConfigFactory
-from models.dataset import Dataset
+from models.dataset import Dataset, RENEDataset
 from models.fields import SDFNetwork, SingleVarianceNetwork
 from models.physicalshader import PhysicalRenderingNetwork, PhysicalNeRF
 from models.renderer import NeuSRenderer
@@ -22,6 +22,7 @@ import scipy
 import scipy.interpolate
 from tabulate import tabulate
 import gdown
+import pdb
 
 from skimage.metrics import structural_similarity, peak_signal_noise_ratio
 
@@ -50,12 +51,15 @@ def batch_feed(func, data, batch_size=4096):
     return {k: np.concatenate(ret_data[k]) for k in ret_data}
 
 class Runner:
-    def __init__(self, conf_path, mode='train', case='CASE_NAME', is_continue=False, download_dataset=False):
+    def __init__(self, conf_path, mode='train', case='CASE_NAME', is_continue=False, download_dataset=False, RENE_dataset_path = None):
         self.device = torch.device('cuda')
         self.case = case
 
         if download_dataset:
             self.download_dataset() # download dataset to default location
+        
+        # if not download_dataset and RENE_dataset_path:
+        #     self.parse_RENE_dataset(RENE_dataset_path)
 
         # Configuration
         self.conf_path = conf_path
@@ -69,13 +73,18 @@ class Runner:
         self.base_exp_dir = self.conf['general.base_exp_dir']
         os.makedirs(self.base_exp_dir, exist_ok=True)
 
-        if args.mode.startswith('validate_image'):
-            self.dataset = Dataset(self.conf['dataset_val'])
-        elif args.mode == 'validate_mesh':
-            self.dataset = Dataset(self.conf['dataset'], load_images=False)
+        if RENE_dataset_path is None:
+            if args.mode.startswith('validate_image'):
+                self.dataset = Dataset(self.conf['dataset_val'])
+            elif args.mode == 'validate_mesh':
+                self.dataset = Dataset(self.conf['dataset'], load_images=False)
+            else:
+                self.dataset = Dataset(self.conf['dataset'])
+            self.iter_step = 0
         else:
-            self.dataset = Dataset(self.conf['dataset'])
-        self.iter_step = 0
+            if not download_dataset and RENE_dataset_path:
+                self.dataset = RENEDataset(self.conf['dataset'], RENE_dataset_path)
+            self.iter_step = 0
 
         # Training parameters
         self.end_iter = self.conf.get_int('train.end_iter')
@@ -177,6 +186,10 @@ class Runner:
             gdown.download(id="1PziEgW_X_f4hNAiE_WWmbvALrzD06sJR", output="datasets/face.zip")
             gdown.extractall("datasets/face.zip", "datasets")
             os.remove("datasets/face.zip")   
+
+                   
+        # print(list(cam_light_poses.keys()))
+        # pdb.set_trace() 
 
 
     @torch.no_grad()
@@ -342,8 +355,8 @@ class Runner:
             if self.iter_step % self.val_freq == 0:
                 self.validate_image(log_to_tb=True)
 
-            if self.iter_step % self.val_mesh_freq == 0:
-                self.validate_mesh(world_space=True, log_to_tb=True)
+            # if self.iter_step % self.val_mesh_freq == 0:
+            #     self.validate_mesh(world_space=True, log_to_tb=True)
 
             self.update_learning_rate()
 
@@ -351,7 +364,7 @@ class Runner:
                 image_perm = self.get_image_perm()
 
     def get_image_perm(self):
-        return torch.randperm(self.dataset.n_images)
+        return torch.randperm(self.dataset.n_images).cpu()
 
     def get_cos_anneal_ratio(self):
         if self.anneal_end == 0.0:
@@ -483,12 +496,12 @@ class Runner:
             near, far = self.dataset.near_far_from_sphere(rays_o_batch, rays_d_batch)
             background_rgb = torch.ones([1, 3]) if self.use_white_bkgd else None
 
-            render_out = self.renderer.render(rays_o_batch,
-                                              rays_d_batch,
-                                              light_o,
-                                              light_lum,
-                                              near,
-                                              far,
+            render_out = self.renderer.render(rays_o_batch.to(self.device),
+                                              rays_d_batch.to(self.device),
+                                              light_o.to(self.device),
+                                              light_lum.to(self.device),
+                                              near.to(self.device),
+                                              far.to(self.device),
                                               cos_anneal_ratio=self.get_cos_anneal_ratio(),
                                               background_rgb=background_rgb)
 
@@ -512,7 +525,7 @@ class Runner:
         normal_img = None
         if len(out_normal_fine) > 0:
             normal_img = np.concatenate(out_normal_fine, axis=0)
-            rot = np.linalg.inv(self.dataset.pose_all[idx, :3, :3].detach().cpu().numpy())
+            rot = np.linalg.inv(self.dataset.cam_pose_all[idx, :3, :3].detach().cpu().numpy())
             normal_img = (np.matmul(rot[None, :, :], normal_img[:, :, None])
                           .reshape([H, W, 3, -1]) * 128 + 128).clip(0, 255)
 
@@ -666,15 +679,16 @@ if __name__ == '__main__':
     parser.add_argument('--mode', type=str, default='train')
     parser.add_argument('--mcube_threshold', type=float, default=0.0)
     parser.add_argument('--is_continue', default=False, action="store_true")
-    parser.add_argument('--gpu', type=int, default=0)
+    parser.add_argument('--gpu', type=int, default=1)
     parser.add_argument('--case', type=str, default='')
-    parser.add_argument('--download_dataset', action='store_true')
+    parser.add_argument('--download_dataset', action='store_true', default=False)
+    parser.add_argument('--RENE_dataset_path', default='/home/arkadeepchaudhury/Downloads/')
 
 
     args = parser.parse_args()
 
     torch.cuda.set_device(args.gpu)
-    runner = Runner(args.conf, args.mode, args.case, args.is_continue, args.download_dataset)
+    runner = Runner(args.conf, args.mode, args.case, args.is_continue, args.download_dataset, args.RENE_dataset_path)
 
     if args.mode.startswith('train'):
         if len(args.mode.split('_')) == 2:
