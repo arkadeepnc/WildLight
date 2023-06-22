@@ -14,7 +14,7 @@ from tqdm import tqdm
 from pyhocon import ConfigFactory
 from models.dataset import Dataset, RENEDataset
 from models.fields import SDFNetwork, SingleVarianceNetwork
-from models.physicalshader import PhysicalRenderingNetwork, PhysicalNeRF
+from models.physicalshader import PhysicalRenderingNetwork, PhysicalNeRF, SHRenderingNetwork
 from models.renderer import NeuSRenderer
 from models.ssim import loss_dssim
 import xatlas
@@ -121,6 +121,7 @@ class Runner:
         self.sdf_network = SDFNetwork(**self.conf['model.sdf_network']).to(self.device)
         self.deviation_network = SingleVarianceNetwork(**self.conf['model.variance_network']).to(self.device)
         self.color_network = PhysicalRenderingNetwork(self.conf['model.physical_rendering_network'], self.conf['model.brdf_settings']).to(self.device)
+        # self.color_network = SHRenderingNetwork(**self.conf['model.SHshader']).to(self.device)
 
 
         params_to_train += list(self.nerf_outside.parameters())

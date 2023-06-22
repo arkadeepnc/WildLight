@@ -5,6 +5,38 @@ import torch.nn as nn
 import torch.nn.functional as F
 from models.embedder import get_embedder
 from numpy import pi
+import pdb
+# hardcoded spherical coefficients
+
+C0 = 0.28209479177387814
+C1 = 0.4886025119029199
+C2 = [
+    1.0925484305920792,
+    -1.0925484305920792,
+    0.31539156525252005,
+    -1.0925484305920792,
+    0.5462742152960396
+]
+C3 = [
+    -0.5900435899266435,
+    2.890611442640554,
+    -0.4570457994644658,
+    0.3731763325901154,
+    -0.4570457994644658,
+    1.445305721320277,
+    -0.5900435899266435
+]
+C4 = [
+    2.5033429417967046,
+    -1.7701307697799304,
+    0.9461746957575601,
+    -0.6690465435572892,
+    0.10578554691520431,
+    -0.6690465435572892,
+    0.47308734787878004,
+    -1.7701307697799304,
+    0.6258357354491761,
+]
 
 def _format_brdf_params(param, newdim=True):
     '''
@@ -81,11 +113,6 @@ def unpack_brdf_params_burley(brdf_params, brdf_config):
            clearcoar*brdf_config.get_float("clearcoar", 1.0),\
            roughness, clearcoat_gloss, base_color
 
-
-
-
-
-
 def dot(tensor1, tensor2, dim=-1, keepdim=False, non_negative=False, epsilon=1e-6) -> torch.Tensor:
     x =  (tensor1 * tensor2).sum(dim=dim, keepdim=keepdim)
     if non_negative:
@@ -116,8 +143,6 @@ def _diffuse(hz, roughness, subsurface):
     subsurface_diffuse = 1.25 / pi * (F_SS**2 * (0.5/(hz*0.9999+0.0001)-0.5) + 0.5)
 
     return (1-subsurface)*base_diffuse + subsurface*subsurface_diffuse
-
-
 
 def _GGX_shading(normal_vecs, incident_vecs, view_vecs, roughness, r0=None, epsilon=1e-6):
     '''
@@ -195,7 +220,6 @@ def _burley_shading(normal_vecs, incident_vecs, view_vecs, brdf_params, brdf_con
 
     return (1-metallic)*r_diffuse, (r_specular + 0.25*clearcoat*r_clearcoat)
 
-
 def _apply_lighting_GGX(points, normals, view_dirs, light_dirs, irradiance, diffuse_albedo, specular_albedo, roughness, r0):
     """
     Args:
@@ -247,8 +271,6 @@ def _apply_shading_burley(points, normals, view_dirs, light_dirs, irradiance, br
     diffuse, non_diffuse = _burley_shading(normals, -light_dirs_, -view_dirs, brdf_params, brdf_config)
     return diffuse*irradiance, non_diffuse*irradiance
 
-
-
 class RenderingNetwork(nn.Module):
     def __init__(self,
                  d_feature,
@@ -290,6 +312,7 @@ class RenderingNetwork(nn.Module):
             view_dirs = self.embedview_fn(view_dirs)
 
         rendering_input = None
+        pdb.set_trace()
 
         if self.mode == 'idr':
             rendering_input = torch.cat([points, view_dirs, normals, brdf_params, feature_vectors], dim=-1)
@@ -371,6 +394,162 @@ class PhysicalRenderingNetwork(nn.Module):
             
 
         return ambient_color + (diffuse_active_color + specular_active_color) * self.flash_light_gamma()
+
+def reflect(viewdirs, normals):
+    """Reflect view directions about normals.
+    https://github.com/kakaobrain/nerf-factory/blob/main/src/model/refnerf/ref_utils.py#LL16C1-L32C6
+    The reflection of a vector v about a unit vector n is a vector u such that
+    dot(v, n) = dot(u, n), and dot(u, u) = dot(v, v). The solution to these two
+    equations is u = 2 dot(n, v) n - v.
+
+    Args:
+        viewdirs: [..., 3] array of view directions.
+        normals: [..., 3] array of normal directions (assumed to be unit vectors).
+
+    Returns:
+        [..., 3] array of reflection directions.
+    """
+    return (
+        2.0 * torch.sum(normals * viewdirs, dim=-1, keepdims=True) * normals - viewdirs
+    )
+
+def eval_sh(deg, sh, dirs):
+    """
+    https://github.com/sarafridov/plenoxels/blob/main/sh.py#L61
+    Evaluate spherical harmonics at unit directions
+    using hardcoded SH polynomials.
+    ... Can be 0 or more batch dimensions.
+    :param deg: int SH max degree. Currently, 0-4 supported
+    :param sh: SH coeffs (..., C, (max degree + 1) ** 2)
+    :param dirs: unit directions (..., 3)
+    :return: (..., C)
+    """
+    assert deg <= 4 and deg >= 0
+    assert (deg + 1) ** 2 == len(sh)
+    assert sh[0].shape[-1] == 3 # 3 color channels
+
+    result = C0 * sh[0]
+    if deg > 0:
+        x, y, z = dirs[..., jnp.newaxis, 0:1], dirs[..., jnp.newaxis, 1:2], dirs[..., jnp.newaxis, 2:3]
+        result = (result -
+                C1 * y * sh[1] +
+                C1 * z * sh[2] -
+                C1 * x * sh[3])
+        if deg > 1:
+            xx, yy, zz = x * x, y * y, z * z
+            xy, yz, xz = x * y, y * z, x * z
+            result = (result +
+                    C2[0] * xy * sh[4] +
+                    C2[1] * yz * sh[5] +
+                    C2[2] * (2.0 * zz - xx - yy) * sh[6] +
+                    C2[3] * xz * sh[7] +
+                    C2[4] * (xx - yy) * sh[8])
+
+            if deg > 2:
+                result = (result +
+                        C3[0] * y * (3 * xx - yy) * sh[9] +
+                        C3[1] * xy * z * sh[10] +
+                        C3[2] * y * (4 * zz - xx - yy)* sh[11] +
+                        C3[3] * z * (2 * zz - 3 * xx - 3 * yy) * sh[12] +
+                        C3[4] * x * (4 * zz - xx - yy) * sh[13] +
+                        C3[5] * z * (xx - yy) * sh[14] +
+                        C3[6] * x * (xx - 3 * yy) * sh[15])
+                if deg > 3:
+                    result = (result + C4[0] * xy * (xx - yy) * sh[16] +
+                            C4[1] * yz * (3 * xx - yy) * sh[17] +
+                            C4[2] * xy * (7 * zz - 1) * sh[18] +
+                            C4[3] * yz * (7 * zz - 3) * sh[19] +
+                            C4[4] * (zz * (35 * zz - 30) + 3) * sh[20] +
+                            C4[5] * xz * (7 * zz - 3) * sh[21] +
+                            C4[6] * (xx - yy) * (7 * zz - 1) * sh[22] +
+                            C4[7] * xz * (xx - 3 * yy) * sh[23] +
+                            C4[8] * (xx * (xx - 3 * yy) - yy * (3 * xx - yy)) * sh[24])
+    return result
+
+class SHRenderingNetwork(nn.Module):
+    def __init__(self,
+                 d_feature,
+                #  mode,
+                 d_in,
+                 d_out,
+                 d_hidden,
+                 n_layers,
+                 weight_norm=True,
+                 multires_ref=0,
+                 squeeze_out=True):
+        super().__init__()
+
+        # self.mode = mode
+        self.squeeze_out = squeeze_out
+        dims = [d_in + d_feature] + [d_hidden for _ in range(n_layers)] + [d_out]
+
+        self.embed_reflect_fn = None
+        if multires_ref > 0:
+            embed_reflect_fn, input_ch = get_embedder(multires_ref)
+            self.embed_reflect_fn = embed_reflect_fn
+            dims[0] += (input_ch - 3)
+
+        self.embed_illum_fn = None
+        if multires_ref > 0:
+            embed_illum_fn, input_ch = get_embedder(multires_ref)
+            self.embed_illum_fn = embed_illum_fn
+            dims[0] += (input_ch - 3)
+
+        self.num_layers = len(dims)
+
+        for l in range(0, self.num_layers - 1):
+            out_dim = dims[l + 1]
+            lin = nn.Linear(dims[l], out_dim)
+
+            if weight_norm:
+                lin = nn.utils.weight_norm(lin)
+
+            setattr(self, "lin" + str(l), lin)
+
+        self.relu = nn.ReLU()
+
+    def forward(self, points, normals, view_dirs, brdf_params, feature_vectors):
+
+        rendering_input = None
+
+        ref_dirs = reflect(viewdirs=view_dirs, normals=normals)
+
+        if self.embed_reflect_fn is not None:
+            ref_dirs = self.embed_reflect_fn(ref_dirs)
+        
+        if self.embed_illum_fn is not None:
+            illum_dirs = self.embed_illum_fn(illum_dirs)
+        
+        rendering_input = torch.cat([ref_dirs, illum_dirs, normals, points, feature_vectors])
+
+        # if self.mode == 'idr':
+        #     rendering_input = torch.cat([points, view_dirs, normals, brdf_params, feature_vectors], dim=-1)
+        # if self.mode == 'idr+SH':
+        #     rendering_input = torch.cat([points, view_dirs, normals, brdf_params, feature_vectors], dim=-1)
+        # elif self.mode == 'no_view_dir':
+        #     rendering_input = torch.cat([points, normals, brdf_params, feature_vectors], dim=-1)
+        # elif self.mode == 'no_normal':
+        #     rendering_input = torch.cat([points, view_dirs, brdf_params, feature_vectors], dim=-1)
+
+        x = rendering_input
+
+        for l in range(0, self.num_layers - 1):
+            lin = getattr(self, "lin" + str(l))
+
+            x = lin(x)
+
+            if l < self.num_layers - 2:
+                x = self.relu(x)
+
+        if self.squeeze_out:
+            x = torch.relu(x)
+        
+
+        return x
+
+
+
+
 
 
 # This implementation is borrowed from nerf-pytorch: https://github.com/yenchenlin/nerf-pytorch
