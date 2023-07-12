@@ -292,7 +292,7 @@ class NeuSRenderer:
         # Section midpoints
         pts = rays_o[:, None, :] + rays_d[:, None, :] * mid_z_vals[..., :, None]  # n_rays, n_samples, 3
         dirs = rays_d[:, None, :].expand(pts.shape)
-        # light_dirs_at_pts = F.normalize((light_o[None, None, :] - pts), dim = -1)
+        # 
         # points_and_light_dirs_at_points = torch.cat([pts, light_dirs_at_pts], axis = 0)
 
         pts = pts.reshape(-1, 3)

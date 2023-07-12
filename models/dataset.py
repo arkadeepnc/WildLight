@@ -494,7 +494,7 @@ class RENEDataset:
                 # print(_light_config_counter,'<?????')
                 # print(image_idxs[_per_file_ctr],'<-------')
                 image_name = light_fnames[_light_config_counter] + '/data/' + f"{image_idxs[_per_file_ctr]:02d}"+ '_image.png'
-                image_arr = cv.imread(image_name)
+                image_arr = cv.imread(image_name)[:,:,::-1]
                 pose_file_name = light_fnames[_light_config_counter] + '/data/' + f"{image_idxs[_per_file_ctr]:02d}"+ '_pose.txt'
                 camera_pose = np.loadtxt(pose_file_name).reshape(4,4)
                 if image_arr.sum() == 0:

@@ -413,7 +413,7 @@ def reflect(viewdirs, normals):
         2.0 * torch.sum(normals * viewdirs, dim=-1, keepdims=True) * normals - viewdirs
     )
 
-def eval_sh(deg, sh, dirs):
+def spherical_harmonic_shader(deg, sh, dirs):
     """
     https://github.com/sarafridov/plenoxels/blob/main/sh.py#L61
     Evaluate spherical harmonics at unit directions
@@ -424,46 +424,48 @@ def eval_sh(deg, sh, dirs):
     :param dirs: unit directions (..., 3)
     :return: (..., C)
     """
-    assert deg <= 4 and deg >= 0
-    assert (deg + 1) ** 2 == len(sh)
-    assert sh[0].shape[-1] == 3 # 3 color channels
+    # pdb.set_trace()
+    # assert deg <= 4 and deg >= 0
+    # assert (deg + 1) ** 2 == len(sh)
+    # assert sh[0].shape[-1] == 3 # 3 color channels
 
-    result = C0 * sh[0]
+    result = C0 * sh[...,0][:,:,None]
+
     if deg > 0:
-        x, y, z = dirs[..., jnp.newaxis, 0:1], dirs[..., jnp.newaxis, 1:2], dirs[..., jnp.newaxis, 2:3]
+        x, y, z = dirs[..., None, 0:1], dirs[..., None, 1:2], dirs[..., None, 2:3]
         result = (result -
-                C1 * y * sh[1] +
-                C1 * z * sh[2] -
-                C1 * x * sh[3])
+                C1 * y * sh[...,1][:,:,None] +
+                C1 * z * sh[...,2][:,:,None] -
+                C1 * x * sh[...,3][:,:,None])
         if deg > 1:
             xx, yy, zz = x * x, y * y, z * z
             xy, yz, xz = x * y, y * z, x * z
             result = (result +
-                    C2[0] * xy * sh[4] +
-                    C2[1] * yz * sh[5] +
-                    C2[2] * (2.0 * zz - xx - yy) * sh[6] +
-                    C2[3] * xz * sh[7] +
-                    C2[4] * (xx - yy) * sh[8])
+                    C2[0] * xy * sh[...,4][:,:,None] +
+                    C2[1] * yz * sh[...,5][:,:,None] +
+                    C2[2] * (2.0 * zz - xx - yy) * sh[...,6][:,:,None] +
+                    C2[3] * xz * sh[...,7][:,:,None] +
+                    C2[4] * (xx - yy) * sh[...,8][:,:,None])
 
             if deg > 2:
                 result = (result +
-                        C3[0] * y * (3 * xx - yy) * sh[9] +
-                        C3[1] * xy * z * sh[10] +
-                        C3[2] * y * (4 * zz - xx - yy)* sh[11] +
-                        C3[3] * z * (2 * zz - 3 * xx - 3 * yy) * sh[12] +
-                        C3[4] * x * (4 * zz - xx - yy) * sh[13] +
-                        C3[5] * z * (xx - yy) * sh[14] +
-                        C3[6] * x * (xx - 3 * yy) * sh[15])
+                        C3[0] * y * (3 * xx - yy) * sh[...,9][:,:,None] +
+                        C3[1] * xy * z * sh[...,10][:,:,None] +
+                        C3[2] * y * (4 * zz - xx - yy)* sh[...,11][:,:,None] +
+                        C3[3] * z * (2 * zz - 3 * xx - 3 * yy) * sh[...,12][:,:,None] +
+                        C3[4] * x * (4 * zz - xx - yy) * sh[...,13][:,:,None] +
+                        C3[5] * z * (xx - yy) * sh[...,14][:,:,None] +
+                        C3[6] * x * (xx - 3 * yy) * sh[...,15][:,:,None])
                 if deg > 3:
-                    result = (result + C4[0] * xy * (xx - yy) * sh[16] +
-                            C4[1] * yz * (3 * xx - yy) * sh[17] +
-                            C4[2] * xy * (7 * zz - 1) * sh[18] +
-                            C4[3] * yz * (7 * zz - 3) * sh[19] +
-                            C4[4] * (zz * (35 * zz - 30) + 3) * sh[20] +
-                            C4[5] * xz * (7 * zz - 3) * sh[21] +
-                            C4[6] * (xx - yy) * (7 * zz - 1) * sh[22] +
-                            C4[7] * xz * (xx - 3 * yy) * sh[23] +
-                            C4[8] * (xx * (xx - 3 * yy) - yy * (3 * xx - yy)) * sh[24])
+                    result = (result + C4[0] * xy * (xx - yy) * sh[...,16][:,:,None] +
+                            C4[1] * yz * (3 * xx - yy) * sh[...,17][:,:,None] +
+                            C4[2] * xy * (7 * zz - 1) * sh[...,18][:,:,None] +
+                            C4[3] * yz * (7 * zz - 3) * sh[...,19][:,:,None] +
+                            C4[4] * (zz * (35 * zz - 30) + 3) * sh[...,20][:,:,None] +
+                            C4[5] * xz * (7 * zz - 3) * sh[...,21][:,:,None] +
+                            C4[6] * (xx - yy) * (7 * zz - 1) * sh[...,22][:,:,None] +
+                            C4[7] * xz * (xx - 3 * yy) * sh[...,23][:,:,None] +
+                            C4[8] * (xx * (xx - 3 * yy) - yy * (3 * xx - yy)) * sh[...,24][:,:,None])
     return result
 
 class SHRenderingNetwork(nn.Module):
@@ -474,26 +476,26 @@ class SHRenderingNetwork(nn.Module):
                  d_out,
                  d_hidden,
                  n_layers,
-                 weight_norm=True,
-                 multires_ref=0,
-                 squeeze_out=True):
+                 weight_norm=False,
+                 multires=0,
+                 squeeze_out=False):
         super().__init__()
 
         # self.mode = mode
+        self.trichromatic = True
+        self.n_brdf_dim = 0
         self.squeeze_out = squeeze_out
         dims = [d_in + d_feature] + [d_hidden for _ in range(n_layers)] + [d_out]
 
-        self.embed_reflect_fn = None
-        if multires_ref > 0:
-            embed_reflect_fn, input_ch = get_embedder(multires_ref)
-            self.embed_reflect_fn = embed_reflect_fn
-            dims[0] += (input_ch - 3)
-
-        self.embed_illum_fn = None
-        if multires_ref > 0:
-            embed_illum_fn, input_ch = get_embedder(multires_ref)
-            self.embed_illum_fn = embed_illum_fn
-            dims[0] += (input_ch - 3)
+        self.embed_fn = None
+        if multires > 0:
+            embed_fn, input_ch = get_embedder(multires)
+            self.embed_fn = embed_fn
+            dims[0] += (input_ch - 3) # ref_dirs
+            dims[0] += (input_ch - 3) # illum_dirs
+            dims[0] += (input_ch - 3) # normals
+            dims[0] += (input_ch - 3) # points
+            dims[0] += (input_ch - 3) # view_dirs
 
         self.num_layers = len(dims)
 
@@ -508,28 +510,24 @@ class SHRenderingNetwork(nn.Module):
 
         self.relu = nn.ReLU()
 
-    def forward(self, points, normals, view_dirs, brdf_params, feature_vectors):
+    def forward(self, points, normals, view_dirs, light_o, light_lum, brdf_params, feature_vectors ):
 
+        
         rendering_input = None
-
+        illum_dirs = F.normalize((light_o[None, None, :] - points), dim = -1).squeeze()
+        normals = F.normalize(normals, dim = 1)
         ref_dirs = reflect(viewdirs=view_dirs, normals=normals)
 
-        if self.embed_reflect_fn is not None:
-            ref_dirs = self.embed_reflect_fn(ref_dirs)
-        
-        if self.embed_illum_fn is not None:
-            illum_dirs = self.embed_illum_fn(illum_dirs)
-        
-        rendering_input = torch.cat([ref_dirs, illum_dirs, normals, points, feature_vectors])
+        if self.embed_fn is not None:
+            embedded_ref_dirs = self.embed_fn(ref_dirs)
+            embedded_illum_dirs = self.embed_fn(illum_dirs)
+            embedded_normals = self.embed_fn(normals)
+            embedded_points = self.embed_fn(points)       
+            embedded_view_dirs = self.embed_fn(view_dirs)       
 
-        # if self.mode == 'idr':
-        #     rendering_input = torch.cat([points, view_dirs, normals, brdf_params, feature_vectors], dim=-1)
-        # if self.mode == 'idr+SH':
-        #     rendering_input = torch.cat([points, view_dirs, normals, brdf_params, feature_vectors], dim=-1)
-        # elif self.mode == 'no_view_dir':
-        #     rendering_input = torch.cat([points, normals, brdf_params, feature_vectors], dim=-1)
-        # elif self.mode == 'no_normal':
-        #     rendering_input = torch.cat([points, view_dirs, brdf_params, feature_vectors], dim=-1)
+        rendering_input = torch.cat([embedded_ref_dirs, embedded_illum_dirs,\
+                                      embedded_view_dirs, embedded_normals,\
+                                         embedded_points, feature_vectors], dim = 1)
 
         x = rendering_input
 
@@ -544,13 +542,13 @@ class SHRenderingNetwork(nn.Module):
         if self.squeeze_out:
             x = torch.relu(x)
         
+                
+        # reshaping the SH coeffs as [batch, col_chnl, coeff]
+        sh_coeffs = x.reshape((x.shape[0], 3, x.shape[1]//3))
+        colors = spherical_harmonic_shader(deg = 4, sh = sh_coeffs, dirs = normals)
+        # pdb.set_trace()  
 
-        return x
-
-
-
-
-
+        return colors.squeeze()
 
 # This implementation is borrowed from nerf-pytorch: https://github.com/yenchenlin/nerf-pytorch
 class PhysicalNeRF(nn.Module):

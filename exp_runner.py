@@ -120,8 +120,8 @@ class Runner:
         self.nerf_outside = PhysicalNeRF(**self.conf['model.nerf']).to(self.device)
         self.sdf_network = SDFNetwork(**self.conf['model.sdf_network']).to(self.device)
         self.deviation_network = SingleVarianceNetwork(**self.conf['model.variance_network']).to(self.device)
-        self.color_network = PhysicalRenderingNetwork(self.conf['model.physical_rendering_network'], self.conf['model.brdf_settings']).to(self.device)
-        # self.color_network = SHRenderingNetwork(**self.conf['model.SHshader']).to(self.device)
+        # self.color_network = PhysicalRenderingNetwork(self.conf['model.physical_rendering_network'], self.conf['model.brdf_settings']).to(self.device)
+        self.color_network = SHRenderingNetwork(**self.conf['model.SHshader']).to(self.device)
 
 
         params_to_train += list(self.nerf_outside.parameters())
@@ -479,6 +479,8 @@ class Runner:
     def validate_image(self, idx=-1, resolution_level=-1, log_to_tb=False, printf=print):
         if idx < 0:
             idx = np.random.randint(self.dataset.n_images)
+            # idxs = np.arange(self.dataset.n_images)
+            # idx = self.dataset.n_images//2
 
         printf('Validate: iter: {}, camera: {}'.format(self.iter_step, idx))
 
