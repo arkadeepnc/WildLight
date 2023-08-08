@@ -23,6 +23,8 @@ import scipy.interpolate
 from tabulate import tabulate
 import gdown
 import pdb
+from matplotlib import cm
+from matplotlib import pyplot as mpl_plt
 
 from skimage.metrics import structural_similarity, peak_signal_noise_ratio
 
@@ -217,10 +219,10 @@ class Runner:
             img_rendered[mask < 0.5] = 0
 
             #print(img.shape, img_rendered.shape)
-            psnr.append(peak_signal_noise_ratio(img, img_rendered, data_range=img.max()))
-            ssim.append(structural_similarity(img, img_rendered, data_range=img.max(),multichannel=True))
+            # psnr.append(peak_signal_noise_ratio(img, img_rendered, data_range=img.max()))
+            # ssim.append(structural_similarity(img, img_rendered, data_range=img.max(),multichannel=True))
 
-            cv.imwrite(os.path.join(self.base_exp_dir, 'novel_view', f"{i:02}.exr"), np.concatenate([img_rendered[...,::-1], mask.reshape(img_rendered.shape[:-1] + (-1,))[...,:1]], axis=-1))
+            # cv.imwrite(os.path.join(self.base_exp_dir, 'novel_view', f"{i:02}.exr"), np.concatenate([img_rendered[...,::-1], mask.reshape(img_rendered.shape[:-1] + (-1,))[...,:1]], axis=-1))
 
         psnr = np.array(psnr)
         ssim = np.array(ssim)
@@ -531,6 +533,7 @@ class Runner:
 
         os.makedirs(os.path.join(self.base_exp_dir, 'validations_fine'), exist_ok=True)
         os.makedirs(os.path.join(self.base_exp_dir, 'normals'), exist_ok=True)
+        os.makedirs(os.path.join(self.base_exp_dir, 'pixel_error_maps'), exist_ok=True)
 
         for i in range(img_fine.shape[-1]):
             if len(out_rgb_fine) > 0:
@@ -539,6 +542,23 @@ class Runner:
                                         '{:0>8d}_{}_{}.png'.format(self.iter_step, i, idx)),
                            np.concatenate([img_fine[..., i],
                                            self.dataset.image_at(idx, resolution_level=resolution_level)])[...,::-1])
+            if len(out_rgb_fine) > 0:
+                # cv.imwrite(os.path.join(self.base_exp_dir,
+                #                         'pixel_error_maps',
+                #                         '{:0>8d}_{}_{}.png'.format(self.iter_step, i, idx)),
+                #            np.concatenate([img_fine[..., i],
+                #                            self.dataset.image_at(idx, resolution_level=resolution_level)])[...,::-1])
+                error_map = np.linalg.norm((self.dataset.image_at(idx, resolution_level=resolution_level)/255. - img_fine[..., i]/255.), axis = -1, keepdims = False )
+                colored_error_map = cm.magma(error_map)
+                
+                # pdb.set_trace()
+                mpl_plt.imsave(os.path.join(self.base_exp_dir,
+                                        'pixel_error_maps',
+                                        '{:0>8d}_{}_{}_VAL.png'.format(self.iter_step, i, idx)), colored_error_map)
+                # cv.imwrite(os.path.join(self.base_exp_dir,
+                #                         'pixel_error_maps',
+                #                         '{:0>8d}_{}_{}_VAL.png'.format(self.iter_step, i, idx)), ((colored_error_map) * 255.).astype(np.uint8))
+
             if len(out_normal_fine) > 0:
                 cv.imwrite(os.path.join(self.base_exp_dir,
                                         'normals',
@@ -707,7 +727,7 @@ if __name__ == '__main__':
     elif args.mode.startswith('validate_image'):  # Interpolate views given two image indices
         with torch.no_grad():
             if len(args.mode.split('_')) == 2:
-                resolution_level = 1
+                resolution_level = 2
             else:
                 assert len(args.mode.split('_')) == 3
                 resolution_level = int(args.mode.split('_')[2])

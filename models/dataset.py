@@ -871,7 +871,7 @@ class RENEDataset:
     #     # cv.destroyAllWindows()
     #     return images, cam_poses, light_poses, cam_intrinsics
 
-    def parse_RENE_dataset(self, path, light_configs_to_take = 1, poses_per_light_to_take = 42 ):
+    def parse_RENE_dataset(self, path, light_configs_to_take = 5, poses_per_light_to_take = 42 ):
         ''' parses the RENE datasets https://github.com/eyecan-ai/rene'''
         from glob import glob
         light_fnames = glob(path+'/*', recursive = False)
@@ -902,7 +902,7 @@ class RENEDataset:
                 try :
                     image_arr = cv.imread(image_name)#[251:751, 219:1019,:]
                     camera_pose = np.loadtxt(pose_file_name).reshape(4,4)
-                except FileNotFoundError as e:
+                except FileNotFoundError or TypeError as e:
                     print("Pose file and posed image does not exist: {}".format(pose_file_name))
                     _pose_config_counter += 1
                     continue
@@ -921,7 +921,7 @@ class RENEDataset:
                 # cam_intrinsic[0,2] -= 219
                 # cam_intrinsic[:2, :] *= 0.25
                 cam_intrinsics.append(cam_intrinsic)
-                images.append((image_arr/255.).astype(np.float32))
+                images.append((image_arr[:,:,::-1]/255.).astype(np.float32))
                 # cv.imshow('image',image_arr)
                 # cv.waitKey(0)
 
